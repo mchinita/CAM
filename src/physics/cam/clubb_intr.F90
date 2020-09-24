@@ -2510,21 +2510,21 @@ end subroutine clubb_init_cnst
            thvm_in = thlm_in + ep1 * thv_ds_zt * rtm_in &
                        + ( latvap/(cpair*exner) - ep2 * thv_ds_zt ) * rcm_inout
 
-           call integrate_mf( nz,        dzt,         p_in_Pa_zm, invrs_exner_zm, nup, & ! input
-                              um_in,     vm_in,       thlm_in,    thlm_zm_in, thvm_in, & ! input
-                              rtm_in,    rtm_zm_in,   wpthlp_sfc, wprtp_sfc,  pblh(i), & ! input
-                              mf_dry_a,  mf_moist_a,                                   & ! output - plume diagnostics
-                              mf_dry_w,  mf_moist_w,                                   & ! output - plume diagnostics
-                              mf_dry_qt, mf_moist_qt,                                  & ! output - plume diagnostics
-                              mf_dry_thl,mf_moist_thl,                                 & ! output - plume diagnostics
-                              mf_dry_u,  mf_moist_u,                                   & ! output - plume diagnostics
-                              mf_dry_v,  mf_moist_v,                                   & ! output - plume diagnostics
-                                         mf_moist_qc,                                  & ! output - plume diagnostics
-                              s_ae,      s_aw,                                         & ! output - plume diagnostics
-                              s_awthl,   s_awqt,                                       & ! output - plume diagnostics
-                              s_awql,    s_awqi,                                       & ! output - plume diagnostics
-                              s_awu,     s_awv,                                        & ! output - plume diagnostics
-                              mf_thlflx, mf_qtflx )                                      ! output - variables needed for solver
+           call integrate_mf( nz,        nup,         dzt,        p_in_Pa_zm, invrs_exner_zm, & ! input
+                              um_in,     vm_in,       thlm_in,    thlm_zm_in, thvm_in,        & ! input
+                              rtm_in,    rtm_zm_in,   wpthlp_sfc, wprtp_sfc,  pblh(i),        & ! input
+                              mf_dry_a,  mf_moist_a,                                          & ! output - plume diagnostics
+                              mf_dry_w,  mf_moist_w,                                          & ! output - plume diagnostics
+                              mf_dry_qt, mf_moist_qt,                                         & ! output - plume diagnostics
+                              mf_dry_thl,mf_moist_thl,                                        & ! output - plume diagnostics
+                              mf_dry_u,  mf_moist_u,                                          & ! output - plume diagnostics
+                              mf_dry_v,  mf_moist_v,                                          & ! output - plume diagnostics
+                                         mf_moist_qc,                                         & ! output - plume diagnostics
+                              s_ae,      s_aw,                                                & ! output - plume diagnostics
+                              s_awthl,   s_awqt,                                              & ! output - plume diagnostics
+                              s_awql,    s_awqi,                                              & ! output - plume diagnostics
+                              s_awu,     s_awv,                                               & ! output - plume diagnostics
+                              mf_thlflx, mf_qtflx )                                             ! output - variables needed for solver
 
            ! pass MF turbulent advection term as CLUBB explicit forcing term
            do k=2,nz

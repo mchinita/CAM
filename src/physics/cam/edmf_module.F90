@@ -99,7 +99,7 @@ module edmf_module
   !
   ! =============================================================================== !
 
-  subroutine integrate_mf( nz,      dzt,     p_zm,    iexner_zm, nup,               & ! input
+  subroutine integrate_mf( nz,      nup,     dzt,     p_zm,      iexner_zm,         & ! input
                            u,       v,       thl,     thl_zm,    thv,               & ! input
                            qt,      qt_zm,   wthl,    wqt,       pblh,              & ! input
                            dry_a,   moist_a,                                        & ! output - plume diagnostics
@@ -121,24 +121,24 @@ module edmf_module
                                             thl,    thv,          & ! thermodynamic grid
                                             qt,     dzt,          & ! thermodynamic grid
                                             p_zm,   iexner_zm,    & ! momentum grid
-                                            thl_zm, qt_zm         ! momentum grid
+                                            thl_zm, qt_zm           ! momentum grid
 
      integer,  intent(in)                :: nz,nup
      real(r8), intent(in)                :: wthl,wqt
      real(r8), intent(inout)             :: pblh
 
-     real(r8),dimension(nz), intent(out) :: dry_a,   moist_a,   & ! momentum grid
-                                            dry_w,   moist_w,   & ! momentum grid
-                                            dry_qt,  moist_qt,  & ! momentum grid
-                                            dry_thl, moist_thl, & ! momentum grid
-                                            dry_u,   moist_u,   & ! momentum grid
-                                            dry_v,   moist_v,   & ! momentum grid
-                                                     moist_qc,  & ! momentum grid
-                                            ae,      aw,        & ! momentum grid
-                                            awthl,   awqt,      & ! momentum grid
-                                            awql,    awqi,      & ! momentum grid
-                                            awu,     awv,       & ! momentum grid
-                                            thlflx,  qtflx        ! momentum grid
+     real(r8),dimension(nz), intent(out) :: dry_a,   moist_a,     & ! momentum grid
+                                            dry_w,   moist_w,     & ! momentum grid
+                                            dry_qt,  moist_qt,    & ! momentum grid
+                                            dry_thl, moist_thl,   & ! momentum grid
+                                            dry_u,   moist_u,     & ! momentum grid
+                                            dry_v,   moist_v,     & ! momentum grid
+                                                     moist_qc,    & ! momentum grid
+                                            ae,      aw,          & ! momentum grid
+                                            awthl,   awqt,        & ! momentum grid
+                                            awql,    awqi,        & ! momentum grid
+                                            awu,     awv,         & ! momentum grid
+                                            thlflx,  qtflx          ! momentum grid
      ! =============================================================================== !
      ! INTERNAL VARIABLES
      !
@@ -156,8 +156,8 @@ module edmf_module
                                     upu,      upv       ! momentum grid 
      !
      ! entrainment profiles
-     real(r8), dimension(nz,nup) :: ent,      entf      ! thermodynamic levels
-     integer,  dimension(nz,nup) :: enti                ! thermodynamic levels
+     real(r8), dimension(nz,nup) :: ent,      entf      ! thermodynamic grid
+     integer,  dimension(nz,nup) :: enti                ! thermodynamic grid
      ! 
      ! other variables
      integer                     :: k,i,ih
@@ -166,12 +166,12 @@ module edmf_module
                                     sigmaw, sigmaqt, sigmath, &
                                             wmin,    wmax,    & 
                                     wlv,    wtv,     wp,      & 
-                                    b,                        & ! thermodynamic grid
+                                    B,                        & ! thermodynamic grid
                                     thln,   thvn,    thn,     & ! momentum grid
                                     qtn,                      & ! momentum grid
                                     qcn,    qln,     qin,     & ! momentum grid
                                     un,     vn,      wn2,     & ! momentum grid
-                                    entexp, entexpu, entw
+                                    entexp, entexpu, entw       ! thermodynamic grid
      !
      ! parameters defining initial conditions for updrafts
      real(r8),parameter          :: &
@@ -297,10 +297,8 @@ module edmf_module
        do i=1,nup
          do k=2,nz
 
-           ! entexp is at mid-point thermodynamics levels
            entexp  = exp(-ent(k,i)*dzt(k))
            entexpu = exp(-ent(k,i)*dzt(k)/3._r8)
-
            
            qtn  = qt(k) *(1.-entexp ) + upqt (k-1,i)*entexp
            thln = thl(k)*(1.-entexp ) + upthl(k-1,i)*entexp
@@ -314,7 +312,7 @@ module edmf_module
              thvn = thln*(1._r8+zvir*qtn)
            end if
 
-           b=gravit*(0.5_r8*(thvn+upthv(k-1,i))/thv(k)-1.)
+           B=gravit*(0.5_r8*(thvn+upthv(k-1,i))/thv(k)-1.)
 
            !if (i.eq.1) then
            !  if ( masterproc ) then
@@ -326,10 +324,10 @@ module edmf_module
            ! to avoid singularities w equation has to be computed diferently if wp==0
            wp = clubb_mf_wb*ent(k,i)
            if (wp==0._r8) then
-             wn2 = upw(k-1,i)**2._r8+2._r8*clubb_mf_wa*b*dzt(k)
+             wn2 = upw(k-1,i)**2._r8+2._r8*clubb_mf_wa*B*dzt(k)
            else
              entw = exp(-2._r8*wp*dzt(k))
-             wn2 = entw*upw(k-1,i)**2._r8+clubb_mf_wa*b/(clubb_mf_wb*ent(k,i))*(1._r8-entw)
+             wn2 = entw*upw(k-1,i)**2._r8+clubb_mf_wa*B/(clubb_mf_wb*ent(k,i))*(1._r8-entw)
            end if
 
            if (wn2>0._r8) then
@@ -429,7 +427,7 @@ module edmf_module
        enddo
 
        do k=2,nz
-         thlflx(k)= awthl(k) - aw(k)*thl_zm(k) ! MKW NOTE: used to be slflx, but CLUBB works on thl
+         thlflx(k)= awthl(k) - aw(k)*thl_zm(k)
          qtflx(k)= awqt(k) - aw(k)*qt_zm(k)
        enddo
        thlflx(1) = 0._r8
