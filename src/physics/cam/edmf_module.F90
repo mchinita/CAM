@@ -3,12 +3,6 @@ module edmf_module
 ! =============================================================================== !
 ! Mass-flux module for use with CLUBB                                             !
 ! Together (CLUBB+MF) they comprise a eddy-diffusivity mass-flux approach (EDMF)  !
-!                                                                                 !
-! Provides rtm and thl fluxes due to mass flux ensemble,                          !
-! which are fed into the mixed explicit/implicit clubb solver as explicit terms   !
-!                                                                                 !
-! ---------------------------------Authors----------------------------------------!
-! Adam Herrington, Mikael Witte, Marcin Kurowski
 ! =============================================================================== !
 
   use shr_kind_mod,  only: r8=>shr_kind_r8
@@ -29,11 +23,11 @@ module edmf_module
 
   contains
 
-  ! =============================================================================== !
-  !                                                                                 !
-  ! =============================================================================== !
-
   subroutine clubb_mf_readnl(nlfile)
+
+  ! =============================================================================== !
+  ! MF namelists                                                                    !
+  ! =============================================================================== !
 
     use namelist_utils,  only: find_group_name
     use units,           only: getunit, freeunit
@@ -92,27 +86,32 @@ module edmf_module
                            awu,     awv,                                            & ! output - diagnosed fluxes BEFORE mean field update
                            thlflx,  qtflx )                                           ! output - variables needed for solver
 
-  ! ================================================================================ !
-  ! Mass-flux routine                                                                !
-  !                                                                                  ! 
-  ! Original author: Marcin Kurowski, JPL                                            !
-  ! Modified heavily by Mikael Witte, UCLA/JPL for implementation in CESM2/E3SM      !
-  !                                                                                  !
-  ! Variables needed for solver                                                      !
-  ! ae = sum_i (1-a_i)                                                               !
-  ! aw3 = sum (a_i w_i)                                                              !
-  ! aws3 = sum (a_i w_i*s_i); s=thl*cp                                               !
-  ! aws3,awqv3,awql3,awqi3,awu3,awv3 similar as above except for different variables !
-  !                                                                                  !
-  ! Mass flux variables are computed on edges (i.e. momentum grid):                  !
-  ! upa,upw,upqt,...                                                                 !
-  ! dry_a,moist_a,dry_w,moist_w, ...                                                 !
-  !                                                                                  !
-  ! In CLUBB (unlike CAM) nlevs of momentum grid = nlevs of thermodynamic grid,      !
-  ! due to a subsurface thermodynamic layer. To avoid confusion, below the variables !  
-  ! are grouped by the grid they are on.                                             !
-  !                                                                                  !
-  ! ================================================================================ !
+  ! ================================================================================= !
+  ! Mass-flux algorithm                                                               !
+  !                                                                                   !
+  ! Provides rtm and thl fluxes due to mass flux ensemble,                            !
+  ! which are fed into the mixed explicit/implicit clubb solver as explicit terms     !
+  !                                                                                   !
+  ! Variables needed for solver                                                       !
+  ! ae = sum_i (1-a_i)                                                                !
+  ! aw3 = sum (a_i w_i)                                                               ! 
+  ! aws3 = sum (a_i w_i*s_i); s=thl*cp                                                !
+  ! aws3,awqv3,awql3,awqi3,awu3,awv3 similar as above except for different variables  !
+  !                                                                                   !
+  ! Mass flux variables are computed on edges (i.e. momentum grid):                   !
+  ! upa,upw,upqt,...                                                                  !
+  ! dry_a,moist_a,dry_w,moist_w, ...                                                  !
+  !                                                                                   ! 
+  ! In CLUBB (unlike CAM) nlevs of momentum grid = nlevs of thermodynamic grid,       !
+  ! due to a subsurface thermodynamic layer. To avoid confusion, below the variables  !  
+  ! are grouped by the grid they are on.                                              !
+  !                                                                                   !
+  ! ---------------------------------Authors----------------------------------------  !
+  ! Marcin Kurowski, JPL                                                              !
+  ! Modified heavily by Mikael Witte, UCLA/JPL for implementation in CESM2/E3SM       !
+  ! Additional modifications by Adam Herrington, NCAR                                 !
+  ! ================================================================================= !
+
      use physconst,          only: rair, cpair, gravit, latvap, latice, zvir
 
      real(r8), dimension(nz), intent(in) :: u,      v,            & ! thermodynamic grid
@@ -175,11 +174,11 @@ module edmf_module
      ! parameters defining initial conditions for updrafts
      real(r8),parameter          :: pwmin = 1.5_r8,           &
                                     pwmax = 3._r8
-
+     !
      ! min values to avoid singularities
      real(r8),parameter          :: wstarmin = 1.e-3_r8,      &
                                     pblhmin  = 100._r8
-
+     !
      ! to condensate or to not condensate
      logical                     :: do_condensation = .true.
 
