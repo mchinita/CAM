@@ -4,7 +4,7 @@ module edmf_module
 ! Mass-flux module for use with CLUBB                                             !
 ! Together (CLUBB+MF) they comprise a eddy-diffusivity mass-flux approach (EDMF)  !
 !                                                                                 !
-! Provides rtm and thl tendencies due to mass flux ensemble,                      !
+! Provides rtm and thl fluxes due to mass flux ensemble,                          !
 ! which are fed into the mixed explicit/implicit clubb solver as explicit terms   !
 !                                                                                 !
 ! ---------------------------------Authors----------------------------------------!
@@ -76,29 +76,6 @@ module edmf_module
 
   end subroutine clubb_mf_readnl
 
-  ! =============================================================================== !
-  ! Mass-flux routine                                                              !
-  !
-  ! Original author: Marcin Kurowski, JPL
-  ! Modified heavily by Mikael Witte, UCLA/JPL for implementation in CESM2/E3SM
-  !
-  ! Variables needed for solver
-  ! ae = sum_i (1-a_i)
-  ! aw3 = sum (a_i w_i)
-  ! aws3 = sum (a_i w_i*s_i); s=thl*cp
-  ! aws3,awqv3,awql3,awqi3,awu3,awv3 similar as above except for different variables
-  !
-  !
-  ! Mass flux variables are computed on edges (i.e. momentum grid):
-  ! upa,upw,upqt,... kts:kte+1
-  ! dry_a,moist_a,dry_w,moist_w, ... kts:kte+1
-  !
-  ! In CLUBB (unlike CAM) nlevs of momentum grid = nlevs of thermodynamic grid,
-  ! due to a subsurface thermodynamic layer. To avoid confusion, below the variables 
-  ! are grouped by the grid they are on.
-  !
-  ! =============================================================================== !
-
   subroutine integrate_mf( nz,      nup,     dzt,     p_zm,      iexner_zm,         & ! input
                            u,       v,       thl,     thl_zm,    thv,               & ! input
                            qt,      qt_zm,   wthl,    wqt,       pblh,              & ! input
@@ -115,6 +92,27 @@ module edmf_module
                            awu,     awv,                                            & ! output - diagnosed fluxes BEFORE mean field update
                            thlflx,  qtflx )                                           ! output - variables needed for solver
 
+  ! ================================================================================ !
+  ! Mass-flux routine                                                                !
+  !                                                                                  ! 
+  ! Original author: Marcin Kurowski, JPL                                            !
+  ! Modified heavily by Mikael Witte, UCLA/JPL for implementation in CESM2/E3SM      !
+  !                                                                                  !
+  ! Variables needed for solver                                                      !
+  ! ae = sum_i (1-a_i)                                                               !
+  ! aw3 = sum (a_i w_i)                                                              !
+  ! aws3 = sum (a_i w_i*s_i); s=thl*cp                                               !
+  ! aws3,awqv3,awql3,awqi3,awu3,awv3 similar as above except for different variables !
+  !                                                                                  !
+  ! Mass flux variables are computed on edges (i.e. momentum grid):                  !
+  ! upa,upw,upqt,...                                                                 !
+  ! dry_a,moist_a,dry_w,moist_w, ...                                                 !
+  !                                                                                  !
+  ! In CLUBB (unlike CAM) nlevs of momentum grid = nlevs of thermodynamic grid,      !
+  ! due to a subsurface thermodynamic layer. To avoid confusion, below the variables !  
+  ! are grouped by the grid they are on.                                             !
+  !                                                                                  !
+  ! ================================================================================ !
      use physconst,          only: rair, cpair, gravit, latvap, latice, zvir
 
      real(r8), dimension(nz), intent(in) :: u,      v,            & ! thermodynamic grid
@@ -139,25 +137,26 @@ module edmf_module
                                             awql,    awqi,        & ! momentum grid
                                             awu,     awv,         & ! momentum grid
                                             thlflx,  qtflx          ! momentum grid
+
      ! =============================================================================== !
      ! INTERNAL VARIABLES
      !
      ! sums over all plumes
-     real(r8), dimension(nz)     :: moist_th, dry_th, & ! momentum grid
-                                    awqv,     awth      ! momentum grid
+     real(r8), dimension(nz)     :: moist_th, dry_th,         & ! momentum grid
+                                    awqv,     awth              ! momentum grid
      !
      ! updraft properties
-     real(r8), dimension(nz,nup) :: upw,      upa,    & ! momentum grid
-                                    upqt,     upqc,   & ! momentum grid
-                                    upqv,     upql,   & ! momentum grid
-                                              upqi,   & ! momentum grid
-                                    upth,     upthv,  & ! momentum grid
-                                              upthl,  & ! momentum grid
-                                    upu,      upv       ! momentum grid 
+     real(r8), dimension(nz,nup) :: upw,      upa,            & ! momentum grid
+                                    upqt,     upqc,           & ! momentum grid
+                                    upqv,     upql,           & ! momentum grid
+                                              upqi,           & ! momentum grid
+                                    upth,     upthv,          & ! momentum grid
+                                              upthl,          & ! momentum grid
+                                    upu,      upv               ! momentum grid 
      !
      ! entrainment profiles
-     real(r8), dimension(nz,nup) :: ent,      entf      ! thermodynamic grid
-     integer,  dimension(nz,nup) :: enti                ! thermodynamic grid
+     real(r8), dimension(nz,nup) :: ent,      entf              ! thermodynamic grid
+     integer,  dimension(nz,nup) :: enti                        ! thermodynamic grid
      ! 
      ! other variables
      integer                     :: k,i,ih
@@ -167,24 +166,22 @@ module edmf_module
                                             wmin,    wmax,    & 
                                     wlv,    wtv,     wp,      & 
                                     B,                        & ! thermodynamic grid
+                                    entexp, entexpu, entw,    & ! thermodynamic grid
                                     thln,   thvn,    thn,     & ! momentum grid
                                     qtn,                      & ! momentum grid
                                     qcn,    qln,     qin,     & ! momentum grid
-                                    un,     vn,      wn2,     & ! momentum grid
-                                    entexp, entexpu, entw       ! thermodynamic grid
+                                    un,     vn,      wn2        ! momentum grid
      !
      ! parameters defining initial conditions for updrafts
-     real(r8),parameter          :: &
-                                    pwmin = 1.5_r8,&
+     real(r8),parameter          :: pwmin = 1.5_r8,           &
                                     pwmax = 3._r8
 
      ! min values to avoid singularities
-     real(r8),parameter          :: &
-                                    wstarmin = 1.e-3_r8, &
+     real(r8),parameter          :: wstarmin = 1.e-3_r8,      &
                                     pblhmin  = 100._r8
 
      ! to condensate or to not condensate
-     logical :: do_condensation = .true.
+     logical                     :: do_condensation = .true.
 
      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
      !!!!!!!!!!!!!!!!!!!!!! BEGIN CODE !!!!!!!!!!!!!!!!!!!!!!!
@@ -207,7 +204,6 @@ module edmf_module
      moist_qc  = 0._r8
      ! outputs - variables needed for solver
      aw        = 0._r8
-     ! aws       = 0._r8
      awthl     = 0._r8
      awqt      = 0._r8
      awqv      = 0._r8
@@ -242,25 +238,24 @@ module edmf_module
      ! if surface buoyancy is positive then do mass-flux, otherwise not
      if ( wthv > 0._r8 ) then
 
-       ! compute entrainment coefficient
-       ! get dz/L0
+       ! get entrainment coefficient, dz/L0
        do i=1,nup
          do k=2,nz
            entf(k,i) = dzt(k) / clubb_mf_L0
          enddo
        enddo
 
-       ! get Poisson P(dz/L0)
+       ! get poisson, P(dz/L0)
        call poisson( nz, nup, entf, enti, thl(nz))
 
-       ! entrainent: Ent=Ent0/dz*P(dz/L0)
+       ! get entrainent, ent=ent0/dz*P(dz/L0)
        do i=1,nup
          do k=2,nz
            ent(k,i) = real( enti(k,i))*clubb_mf_ent0/dzt(k)
          enddo
        enddo
 
-       ! surface conditions
+       ! get surface conditions
        wstar  = max( wstarmin, (gravit/thv(1)*wthv*pblh)**(1./3.) ) ! MKW NOTE: is it better to use kts instead of index 1 for surface?
        qstar  = wqt / wstar
        thstar = wthl / wstar
@@ -293,7 +288,7 @@ module edmf_module
 
        enddo
 
-       ! integrate updrafts
+       ! get updraft properties
        do i=1,nup
          do k=2,nz
 
@@ -320,8 +315,7 @@ module edmf_module
            !  end if
            !end if
 
-           ! Wn^2
-           ! to avoid singularities w equation has to be computed diferently if wp==0
+           ! get wn^2, to avoid singularities w equation has to be computed diferently if wp==0
            wp = clubb_mf_wb*ent(k,i)
            if (wp==0._r8) then
              wn2 = upw(k-1,i)**2._r8+2._r8*clubb_mf_wa*B*dzt(k)
@@ -438,10 +432,10 @@ module edmf_module
   end subroutine integrate_mf
 
   subroutine condensation_mf( qt, thl, p, iex, thv, qc, th, ql, qi)
-  !
-  ! zero or one condensation for edmf: calculates thv and qc
-  !
-     use physconst,       only: cpair, zvir
+  ! =============================================================================== !
+  ! zero or one condensation for edmf: calculates thv and qc                        !
+  ! =============================================================================== !
+     use physconst,          only: cpair, zvir
      use wv_saturation,      only : qsat
 
      real(r8),intent(in) :: qt,thl,p,iex
