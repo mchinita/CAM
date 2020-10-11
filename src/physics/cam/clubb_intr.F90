@@ -2515,7 +2515,7 @@ end subroutine clubb_init_cnst
                        + ( latvap/(cpair*exner) - ep2 * thv_ds_zt ) * rcm_inout
 
            call integrate_mf( nz,        dzt,         zi_g,       p_in_Pa_zm, invrs_exner_zm, & ! input
-                                                                  p_in_Pa,    invrs_exner_zt, & ! input
+                                                      rho_ds_zt,  p_in_Pa,    invrs_exner_zt, & ! input
                               um_in,     vm_in,       thlm_in,    rtm_in,     thvm_in,        & ! input
                               !um_in,     vm_in,       thlm_in,    rtm_in,     thv_ds_zt,      & ! input
                                                       thlm_zm_in, rtm_zm_in,                  & ! input
