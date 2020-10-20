@@ -299,7 +299,7 @@ module edmf_module
 
        ! get poisson, P(dz/L0)
        if (debug) then
-         enti(:,:) = 4
+         enti(:,:) = 1
        else
          call poisson( nz, clubb_mf_nup, entf, enti, thl(nz))
        end if

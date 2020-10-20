@@ -20,8 +20,7 @@ module clubb_intr
   use shr_kind_mod,  only: r8=>shr_kind_r8                                                                  
   use ppgrid,        only: pver, pverp, pcols, begchunk, endchunk
   use phys_control,  only: phys_getopts
-  use physconst,     only: rairv, cpairv, cpair, gravit, latvap, latice, zvir, rh2o, karman, &
-                           mwh2o, mwdry
+  use physconst,     only: rairv, cpairv, cpair, gravit, latvap, latice, zvir, rh2o, karman
 
   use spmd_utils,    only: masterproc 
   use constituents,  only: pcnst, cnst_add
@@ -1804,7 +1803,7 @@ end subroutine clubb_init_cnst
    real(r8), dimension(pverp)           :: rtm_zm_in,  thlm_zm_in,    & ! momentum grid
                                            thvm_in,                   & ! thermodyanmic grid
                                            dzt,        invrs_dzt,     & ! thermodynamic grid
-                                                       invrs_exner_zt,& ! thermodynamic grid
+                                           th_ds_zt,   invrs_exner_zt,& ! thermodynamic grid
                                            kappa_zt,   qc_zt,         & ! thermodynamic grid
                                            kappa_zm,   p_in_Pa_zm,    & ! momentum grid
                                                        invrs_exner_zm   ! momentum grid
@@ -2429,11 +2428,13 @@ end subroutine clubb_init_cnst
         kappa_zt(k+1) = (rairv(i,pver-k+1,lchnk)/cpairv(i,pver-k+1,lchnk))
         qc_zt(k+1) = state1%q(i,pver-k+1,ixcldliq)
         invrs_exner_zt(k+1) = inv_exner_clubb(i,pver-k+1)
+        th_ds_zt(k+1) = state1%t(i,pver-k+1)*inv_exner_clubb(i,pver-k+1)
       enddo
       kappa_zt(1) = kappa_zt(2)
       qc_zt(1) = qc_zt(2)
       invrs_exner_zt(1) = invrs_exner_zt(2)
- 
+      th_ds_zt(1) = th_ds_zt(2) 
+
       kappa_zm = zt2zm_api(kappa_zt) 
       do k=1,pverp
         p_in_Pa_zm(k) = state1%pint(i,pverp-k+1)
@@ -2501,21 +2502,29 @@ end subroutine clubb_init_cnst
            nz  = pverp+1-top_lev
            do k=2,nz
              dzt(k) = zi_g(k) - zi_g(k-1)
+             th_ds_zt(k) = th_ds_zt(k)*( 1._r8 + (rtm_in(k) - rcm_inout(k)) )**kappa_zt(k)
            enddo
            dzt(1) = dzt(2)
            invrs_dzt = 1._r8/dzt
+           th_ds_zt(1) = th_ds_zt(2)
 
            rtm_zm_in  = zt2zm_api( rtm_in )
            thlm_zm_in = zt2zm_api( thlm_in )
-
-           ep  = mwh2o/mwdry
-           ep1 = (1.0-ep)/ep
-           ep2 = 1.0/ep
-           thvm_in = thlm_in + ep1 * thv_ds_zt * rtm_in &
-                       + ( latvap/(cpair*exner) - ep2 * thv_ds_zt ) * rcm_inout
+           
+           do k=2,nz
+             ep  = rairv(i,pverp-k+1,lchnk)/rh2o
+             ep1 = (1._r8-ep)/ep
+             ep2 = 1._r8/ep
+             thvm_in(k) = thlm_in(k) + ep1 * th_ds_zt(k) * rtm_in(k) &
+                         !+ ( latvap/(cpairv(i,pverp-k+1,lchnk)*exner(k)) - ep2 * th_ds_zt(k) ) * rcm_inout(k)
+                         + ( latvap/(cpairv(i,pverp-k+1,lchnk)*exner(k)) - ep2 * th_ds_zt(k) ) * (rtm_in(k)-rvm_in(k))
+           end do
+           thvm_in(1) = thvm_in(2)
+           !thvm_in = thlm_in + ep1 * thv_ds_zt * rtm_in &
+           !            + ( latvap/(cpair*exner) - ep2 * thv_ds_zt ) * rcm_inout
 
            call integrate_mf( nz,        dzt,         zi_g,       p_in_Pa_zm, invrs_exner_zm, & ! input
-                                                      rho_ds_zt,  p_in_Pa,    invrs_exner_zt, & ! input
+                                                      rho_zt,     p_in_Pa,    invrs_exner_zt, & ! input
                               um_in,     vm_in,       thlm_in,    rtm_in,     thvm_in,        & ! input
                               !um_in,     vm_in,       thlm_in,    rtm_in,     thv_ds_zt,      & ! input
                                                       thlm_zm_in, rtm_zm_in,                  & ! input
@@ -2539,7 +2548,7 @@ end subroutine clubb_init_cnst
            do k=2,nz
              rtm_forcing(k)  = rtm_forcing(k) - invrs_rho_ds_zt(k) * invrs_dzt(k) * &
                               ((rho_ds_zm(k) * mf_qtflx(k)) - (rho_ds_zm(k-1) * mf_qtflx(k-1)))
-           
+            
              thlm_forcing(k) = thlm_forcing(k) - invrs_rho_ds_zt(k) * invrs_dzt(k) * &
                                ((rho_ds_zm(k) * mf_thlflx(k)) - (rho_ds_zm(k-1) * mf_thlflx(k-1)))
            end do
