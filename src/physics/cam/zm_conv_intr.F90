@@ -8,7 +8,7 @@ module zm_conv_intr
 ! January 2010 modified by J. Kay to add COSP simulator fields to physics buffer
 !---------------------------------------------------------------------------------
    use shr_kind_mod, only: r8=>shr_kind_r8
-   use physconst,    only: cpair                              
+   use physconst,    only: cpair, rhoh2o 
    use ppgrid,       only: pver, pcols, pverp, begchunk, endchunk
    use zm_conv,      only: zm_conv_evap, zm_convr, convtran, momtran
    use zm_microphysics,  only: zm_aero_t, zm_conv_t
@@ -278,6 +278,9 @@ subroutine zm_conv_init(pref_edge)
     call addfld ('ZMEIHEAT', (/ 'lev' /) , 'A', 'W/kg'   ,'Heating by ice and evaporation in ZM convection')
     
     call addfld ('CMFMCDZM', (/ 'ilev' /), 'A', 'kg/m2/s','Convection mass flux from ZM deep ')
+!+++ARH
+    call addfld ('PFLX', (/ 'ilev' /), 'A', 'm/s','Precipitation flux from ZM deep ')
+!---ARH
     call addfld ('PRECCDZM', horiz_only,   'A', 'm/s','Convective precipitation rate from ZM deep')
 
     call addfld ('PCONVB',   horiz_only ,  'A', 'Pa'    ,'convection base pressure')
@@ -661,6 +664,10 @@ subroutine zm_conv_tend(pblh    ,mcon    ,cme     , &
    mcon(:ncol,:pver) = mcon(:ncol,:pver) * 100._r8/gravit
 
    call outfld('CMFMCDZM', mcon, pcols, lchnk)
+
+!+++ARH
+   call outfld('PFLX', (pflx/rhoh2o), pcols, lchnk)
+!---ARH
 
    ! Store upward and downward mass fluxes in un-gathered arrays
    ! + convert from mb/s to kg/m^2/s

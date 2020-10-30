@@ -76,7 +76,7 @@ module edmf_module
   subroutine integrate_mf( nz,      dzt,     zm,      p_zm,      iexner_zm,         & ! input
                                              rho_zt,  p_zt,      iexner_zt,         & ! input
                            u,       v,       thl,     qt,        thv,               & ! input
-                                             thl_zm,  qt_zm,                        & ! input
+                                             thl_zm,  qt_zm,     th_zm,             & ! input
                                              wthl,    wqt,       pblh,              & ! input
                            dry_a,   moist_a,                                        & ! output - plume diagnostics
                            dry_w,   moist_w,                                        & ! output - plume diagnostics
@@ -89,7 +89,9 @@ module edmf_module
                            awthl,   awqt,                                           & ! output - diagnosed fluxes BEFORE mean field update
                            awql,    awqi,                                           & ! output - diagnosed fluxes BEFORE mean field update
                            awu,     awv,                                            & ! output - diagnosed fluxes BEFORE mean field update
-                           thlflx,  qtflx )                                           ! output - variables needed for solver
+                           thlflx,  qtflx,                                          & ! output - variables needed for solver
+                           sthl,    sqt,                                            & ! output - variables needed for solver
+                           rr )                                                       ! output - rain rate
 
   ! ================================================================================= !
   ! Mass-flux algorithm                                                               !
@@ -128,7 +130,7 @@ module edmf_module
                                             qt,                   & ! thermodynamic grid
                                             dzt,    rho_zt,       & ! thermodynamic grid
                                             p_zt,   iexner_zt,    & ! thermodynamic grid
-                                            thl_zm,               & ! momentum grid
+                                            thl_zm, th_zm,        & ! momentum grid
                                             qt_zm,                & ! momentum grid
                                             zm,                   & ! momentum grid
                                             p_zm,   iexner_zm       ! momentum grid
@@ -148,7 +150,9 @@ module edmf_module
                                             awthl,   awqt,        & ! momentum grid
                                             awql,    awqi,        & ! momentum grid
                                             awu,     awv,         & ! momentum grid
-                                            thlflx,  qtflx          ! momentum grid
+                                            thlflx,  qtflx,       & ! momentum grid
+                                            rr,                   & ! momentum grid
+                                            sthl,    sqt            ! thermodynamic grid
 
      ! =============================================================================== !
      ! INTERNAL VARIABLES
@@ -180,8 +184,8 @@ module edmf_module
      real(r8), dimension(clubb_mf_nup)    :: zcb
      real(r8)                             :: zcb_unset,                &
                                              wthv,                     &
-                                             wstar,  qstar,   thlstar, & 
-                                             sigmaw, sigmaqt, sigmathl,&
+                                             wstar,  qstar,   thvstar, & 
+                                             sigmaw, sigmaqt, sigmathv,&
                                                      wmin,    wmax,    & 
                                              wlv,    wtv,     wp,      & 
                                              B,                        & ! thermodynamic grid
@@ -206,7 +210,7 @@ module edmf_module
      !
      ! w' covariance after Suselj etal 2019
      real(r8),parameter                   :: cwqt  = 0.32_r8,          &
-                                             cwthl = 0.58_r8
+                                             cwthv = 0.58_r8
      !
      ! min values to avoid singularities
      real(r8),parameter                   :: wstarmin = 1.e-3_r8,      &
@@ -225,7 +229,7 @@ module edmf_module
      logical                              :: do_precip = .true.
      !
      ! to debug flag
-     logical                              :: debug = .true.
+     logical                              :: debug = .false.
 
      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
      !!!!!!!!!!!!!!!!!!!!!! BEGIN CODE !!!!!!!!!!!!!!!!!!!!!!!
@@ -257,6 +261,9 @@ module edmf_module
      awv       = 0._r8
      thlflx    = 0._r8
      qtflx     = 0._r8
+     rr        = 0._r8
+     sthl      = 0._r8
+     sqt       = 0._r8
 
      ! this is the environmental area - by default 1.
      ae = 1._r8
@@ -299,7 +306,7 @@ module edmf_module
 
        ! get poisson, P(dz/L0)
        if (debug) then
-         enti(:,:) = 1
+         enti(:,:) = 2
        else
          call poisson( nz, clubb_mf_nup, entf, enti, thl(nz))
        end if
@@ -314,11 +321,11 @@ module edmf_module
        ! get surface conditions
        wstar   = max( wstarmin, (gravit/thv(1)*wthv*pblh)**(1./3.) )
        qstar   = wqt / wstar
-       thlstar = wthl / wstar
+       thvstar = wthv / wstar
 
        sigmaw   = alphw * wstar
        sigmaqt  = alphqt * abs(qstar)
-       sigmathl = alphthl * abs(thlstar)
+       sigmathv = alphthl * abs(thvstar)
 
        wmin = sigmaw * pwmin
        wmax = sigmaw * pwmax
@@ -336,7 +343,13 @@ module edmf_module
          upv(1,i) = v(1)
 
          upqt(1,i)  = qt(1)  + cwqt * upw(1,i) * sigmaqt/sigmaw
-         upthl(1,i) = thl(1) + cwthl * upw(1,i) * sigmathl/sigmaw
+
+         upthv(1,i) = thv(1) + cwthv * upw(1,i) * sigmathv/sigmaw
+         upthl(1,i) = upthv(1,i) / (1._r8+zvir*upqt(1,i))
+
+         !upth(1,i) = th_zm(1) + cwthv * upw(1,i) * sigmathv/sigmaw
+         !upthv(1,i) = upth(1,i)*(1._r8+zvir*upqt(1,i))
+         !upthl(1,i) = upth(1,i)
 
          ! get cloud, lowest momentum level 
          if (do_condensation) then
@@ -351,9 +364,6 @@ module edmf_module
          else
            ! assume no cldliq
            upqc(1,i)  = 0._r8
-           upthv(1,i) = upthl(1,i)*(1._r8+zvir*upqt(1,i))
-           ! assume sigmathl = sigmath
-           !!upthv(1,i) = thv(1) + 0.58_r8 * upw(1,i) * sigmathl/sigmaw
          end if
 
        enddo
@@ -432,13 +442,23 @@ module edmf_module
          do i=1,clubb_mf_nup
            do k=nz-1,1,-1
              ! get rain evaporation
-             qtovqs = (upqt(k,i) + upqt(k-1,i))/(upqs(k,i) + upqs(k-1,i))
+             if ((upqs(k,i) + upqs(k-1,i)).le.0._r8) then
+               qtovqs = 0._r8
+             else
+               qtovqs = (upqt(k,i) + upqt(k-1,i))/(upqs(k,i) + upqs(k-1,i))
+             end if
              qtovqs = min(1._r8,qtovqs)
              sevap = ke*(1._r8 - qtovqs)*sqrt(max(uprr(k+1,i),0._r8))
-
+ 
              ! get rain rate
              uprr(k,i) = uprr(k+1,i) &
                          - rho_zt(k)*dzt(k)*( supqt(k,i)*(1._r8-fdd) + sevap )
+
+             if (debug) then
+               !if ( masterproc ) then
+               !  write(iulog,*) "uprr(k,i), k, i ", uprr(k,i), k, i
+               !end if
+             end if
 
              ! update source terms
              lmixt = 0.5_r8*(uplmix(k,i)+uplmix(k-1,i))
@@ -516,6 +536,9 @@ module edmf_module
            awqv(k) = awqv(k) + upa(k,i)*upw(k,i)*upqv(k,i)
            awql(k) = awql(k) + upa(k,i)*upw(k,i)*upql(k,i)
            awqi(k) = awqi(k) + upa(k,i)*upw(k,i)*upqi(k,i)
+           rr(k)   = rr(k)   + upa(k,i)*uprr(k,i)
+           sthl(k) = sthl(k) + upa(k,i)*supthl(k,i)
+           sqt(k)  = sqt(k)  + upa(k,i)*supqt(k,i)
          enddo
        enddo
 
@@ -638,7 +661,7 @@ module edmf_module
          tau    = tauwgt/tau0
  
          ! get source for updraft
-         Supqt = (qstar-qt)*(1._r8 - exp(-1._r8*tau/w))
+         Supqt = (qstar-qt)*(1._r8 - exp(-1._r8*tau*dz/w))
        else
          Supqt = 0._r8
        end if

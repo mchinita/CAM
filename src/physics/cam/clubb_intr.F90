@@ -20,7 +20,7 @@ module clubb_intr
   use shr_kind_mod,  only: r8=>shr_kind_r8                                                                  
   use ppgrid,        only: pver, pverp, pcols, begchunk, endchunk
   use phys_control,  only: phys_getopts
-  use physconst,     only: rairv, cpairv, cpair, gravit, latvap, latice, zvir, rh2o, karman
+  use physconst,     only: rairv, cpairv, cpair, gravit, latvap, latice, zvir, rh2o, karman, rhoh2o
 
   use spmd_utils,    only: masterproc 
   use constituents,  only: pcnst, cnst_add
@@ -1204,6 +1204,10 @@ end subroutine clubb_init_cnst
       call addfld ( 'edmf_S_AWV'    , (/ 'ilev' /), 'A', 'm2/s2'   , 'Sum of a_i*w_i*v_i (EDMF)' )
       call addfld ( 'edmf_thlflx'   , (/ 'ilev' /), 'A', 'W/m2'    , 'thl flux by edmf (EDMF)' )
       call addfld ( 'edmf_qtflx'    , (/ 'ilev' /), 'A', 'W/m2'    , 'qt flux by edmf (EDMF)' )
+      call addfld ( 'edmf_precc'    , (/ 'ilev' /), 'A', 'm/s'     , 'rain rate (EDMF)' )
+      call addfld ( 'edmf_thlforc'  , (/ 'lev' /),  'A', 'K/s'     , 'thl forcing (EDMF)' )
+      call addfld ( 'edmf_qtforc'   , (/ 'lev' /),  'A', 'kg/kg/s' , 'qt forcing (EDMF)' )
+      call addfld ( 'edmf_rcm'      , (/ 'lev' /),  'A', 'kg/kg'   , 'grid mean cloud (EDMF)' )
     end if 
 
     !  Initialize statistics, below are dummy variables
@@ -1323,6 +1327,10 @@ end subroutine clubb_init_cnst
          call add_default( 'edmf_S_AWV'    , 1, ' ')
          call add_default( 'edmf_thlflx'   , 1, ' ')
          call add_default( 'edmf_qtflx'    , 1, ' ')
+         call add_default( 'edmf_precc'    , 1, ' ')
+         call add_default( 'edmf_thlforc'  , 1, ' ')
+         call add_default( 'edmf_qtforc'   , 1, ' ')
+         call add_default( 'edmf_rcm'      , 1, ' ')
        end if
 
     end if
@@ -1785,7 +1793,12 @@ end subroutine clubb_init_cnst
                                            s_awthl_output,    s_awqt_output,       &
                                            s_awql_output,     s_awqi_output,       &
                                            s_awu_output,      s_awv_output,        &
-                                           mf_thlflx_output,  mf_qtflx_output
+                                           mf_thlflx_output,  mf_qtflx_output,     &
+                                           mf_rr_output      
+   ! MF outputs to outfld
+   real(r8), dimension(pcols,pver)      :: mf_thlforc_output, mf_qtforc_output,    & ! thermodynamic grid
+                                           mf_rcm_output                             ! thermodynamic grid
+
    ! MF Plume
    real(r8), dimension(pverp)           :: mf_dry_a,   mf_moist_a,    &
                                            mf_dry_w,   mf_moist_w,    &
@@ -1798,7 +1811,9 @@ end subroutine clubb_init_cnst
                                            s_awthl,    s_awqt,        &
                                            s_awql,     s_awqi,        &
                                            s_awu,      s_awv,         &
-                                           mf_thlflx,  mf_qtflx
+                                           mf_thlflx,  mf_qtflx,      &
+                                           mf_sthl,    mf_sqt,        &
+                                           mf_rr,      mf_rcm               
    ! MF local vars
    real(r8), dimension(pverp)           :: rtm_zm_in,  thlm_zm_in,    & ! momentum grid
                                            thvm_in,                   & ! thermodyanmic grid
@@ -1806,7 +1821,7 @@ end subroutine clubb_init_cnst
                                            th_ds_zt,   invrs_exner_zt,& ! thermodynamic grid
                                            kappa_zt,   qc_zt,         & ! thermodynamic grid
                                            kappa_zm,   p_in_Pa_zm,    & ! momentum grid
-                                                       invrs_exner_zm   ! momentum grid
+                                           th_ds_zm,   invrs_exner_zm   ! momentum grid
    integer                              :: nz
    real(r8)                             :: ep,                        &
                                            ep1,        ep2
@@ -2175,6 +2190,10 @@ end subroutine clubb_init_cnst
    s_awv_output(:,:)        = 0._r8
    mf_thlflx_output(:,:)    = 0._r8
    mf_qtflx_output(:,:)     = 0._r8
+   mf_rr_output(:,:)        = 0._r8
+   mf_thlforc_output(:,:)   = 0._r8
+   mf_qtforc_output(:,:)    = 0._r8
+   mf_rcm_output(:,:)       = 0._r8
 
    !  Loop over all columns in lchnk to advance CLUBB core
    do i=1,ncol   ! loop over columns
@@ -2424,6 +2443,7 @@ end subroutine clubb_init_cnst
       pre_in(1) = pre_in(2)
 
       ! pressure,exner on momentum grid needed for mass flux calc.
+      mf_rcm(:) = 0._r8
       do k=1,pver
         kappa_zt(k+1) = (rairv(i,pver-k+1,lchnk)/cpairv(i,pver-k+1,lchnk))
         qc_zt(k+1) = state1%q(i,pver-k+1,ixcldliq)
@@ -2502,32 +2522,31 @@ end subroutine clubb_init_cnst
            nz  = pverp+1-top_lev
            do k=2,nz
              dzt(k) = zi_g(k) - zi_g(k-1)
-             th_ds_zt(k) = th_ds_zt(k)*( 1._r8 + (rtm_in(k) - rcm_inout(k)) )**kappa_zt(k)
+             !th_ds_zt(k) = th_ds_zt(k)*( 1._r8 + (rtm_in(k) - rcm_inout(k)) )**kappa_zt(k)
            enddo
            dzt(1) = dzt(2)
            invrs_dzt = 1._r8/dzt
-           th_ds_zt(1) = th_ds_zt(2)
+           !th_ds_zt(1) = th_ds_zt(2)
 
            rtm_zm_in  = zt2zm_api( rtm_in )
            thlm_zm_in = zt2zm_api( thlm_in )
+           th_ds_zm   = zt2zm_api( th_ds_zt )
            
-           do k=2,nz
-             ep  = rairv(i,pverp-k+1,lchnk)/rh2o
-             ep1 = (1._r8-ep)/ep
-             ep2 = 1._r8/ep
-             thvm_in(k) = thlm_in(k) + ep1 * th_ds_zt(k) * rtm_in(k) &
-                         !+ ( latvap/(cpairv(i,pverp-k+1,lchnk)*exner(k)) - ep2 * th_ds_zt(k) ) * rcm_inout(k)
-                         + ( latvap/(cpairv(i,pverp-k+1,lchnk)*exner(k)) - ep2 * th_ds_zt(k) ) * (rtm_in(k)-rvm_in(k))
-           end do
-           thvm_in(1) = thvm_in(2)
-           !thvm_in = thlm_in + ep1 * thv_ds_zt * rtm_in &
-           !            + ( latvap/(cpair*exner) - ep2 * thv_ds_zt ) * rcm_inout
+           !do k=2,nz
+           !  ep  = rairv(i,pverp-k+1,lchnk)/rh2o
+           !  ep1 = (1._r8-ep)/ep
+           !  ep2 = 1._r8/ep
+           !  thvm_in(k) = thlm_in(k) + ep1 * th_ds_zt(k) * rtm_in(k) &
+           !              !+ ( latvap/(cpairv(i,pverp-k+1,lchnk)*exner(k)) - ep2 * th_ds_zt(k) ) * rcm_inout(k)
+           !              + ( latvap/(cpairv(i,pverp-k+1,lchnk)*exner(k)) - ep2 * th_ds_zt(k) ) * (rtm_in(k)-rvm_in(k))
+           !end do
+           !thvm_in(1) = thvm_in(2)
 
            call integrate_mf( nz,        dzt,         zi_g,       p_in_Pa_zm, invrs_exner_zm, & ! input
                                                       rho_zt,     p_in_Pa,    invrs_exner_zt, & ! input
-                              um_in,     vm_in,       thlm_in,    rtm_in,     thvm_in,        & ! input
-                              !um_in,     vm_in,       thlm_in,    rtm_in,     thv_ds_zt,      & ! input
-                                                      thlm_zm_in, rtm_zm_in,                  & ! input
+                              !um_in,     vm_in,       thlm_in,    rtm_in,     thvm_in,        & ! input
+                              um_in,     vm_in,       thlm_in,    rtm_in,     thv_ds_zt,      & ! input
+                                                      thlm_zm_in, rtm_zm_in,  th_ds_zm,       & ! input
                                                       wpthlp_sfc, wprtp_sfc,  pblh(i),        & ! input
                               mf_dry_a,  mf_moist_a,                                          & ! output - plume diagnostics
                               mf_dry_w,  mf_moist_w,                                          & ! output - plume diagnostics
@@ -2540,17 +2559,24 @@ end subroutine clubb_init_cnst
                               s_awthl,   s_awqt,                                              & ! output - plume diagnostics
                               s_awql,    s_awqi,                                              & ! output - plume diagnostics
                               s_awu,     s_awv,                                               & ! output - plume diagnostics
-                              mf_thlflx, mf_qtflx )                                             ! output - variables needed for solver
+                              mf_thlflx, mf_qtflx,                                            & ! output - variables needed for solver
+                              mf_sthl,   mf_sqt,                                              & ! output - variables needed for solver
+                              mf_rr )                                                           ! output - rain rate
 
            ! pass MF turbulent advection term as CLUBB explicit forcing term
            rtm_forcing(1) = 0._r8
            thlm_forcing(1)= 0._r8
            do k=2,nz
              rtm_forcing(k)  = rtm_forcing(k) - invrs_rho_ds_zt(k) * invrs_dzt(k) * &
-                              ((rho_ds_zm(k) * mf_qtflx(k)) - (rho_ds_zm(k-1) * mf_qtflx(k-1)))
+                              ((rho_ds_zm(k) * mf_qtflx(k)) - (rho_ds_zm(k-1) * mf_qtflx(k-1))) &
+                               + mf_sqt(k)/dtime
             
              thlm_forcing(k) = thlm_forcing(k) - invrs_rho_ds_zt(k) * invrs_dzt(k) * &
-                               ((rho_ds_zm(k) * mf_thlflx(k)) - (rho_ds_zm(k-1) * mf_thlflx(k-1)))
+                               ((rho_ds_zm(k) * mf_thlflx(k)) - (rho_ds_zm(k-1) * mf_thlflx(k-1))) &
+                               + mf_sthl(k)/dtime
+
+             mf_rcm(k) = mf_rcm(k) &
+                            + 0.5_r8*(mf_moist_a(k) + mf_moist_a(k-1))*0.5_r8*(mf_moist_qc(k) + mf_moist_qc(k-1))
            end do
 
          end if
@@ -2738,8 +2764,14 @@ end subroutine clubb_init_cnst
            s_awqi_output(i,pverp-k+1)       = s_awqi(k)
            s_awu_output(i,pverp-k+1)        = s_awu(k)
            s_awv_output(i,pverp-k+1)        = s_awv(k)
-           mf_thlflx_output(i,pverp-k+1)    = mf_thlflx(k)
-           mf_qtflx_output(i,pverp-k+1)     = mf_qtflx(k)
+           !mf_thlflx_output(i,pverp-k+1)    = mf_thlflx(k)
+           !mf_qtflx_output(i,pverp-k+1)     = mf_qtflx(k)
+           mf_rr_output(i,pverp-k+1)        = mf_rr(k)
+           if (k.ne.1) then
+             mf_thlforc_output(i,pverp-k+1) = thlm_forcing(k)
+             mf_qtforc_output(i,pverp-k+1)  = rtm_forcing(k)
+             mf_rcm_output(i,pverp-k+1) = mf_rcm(k)
+           end if
          end if
 
       enddo
@@ -2789,8 +2821,11 @@ end subroutine clubb_init_cnst
       
       ! Compute static energy using CLUBB's variables
       do k=1,pver
+         !clubb_s(k) = cpairv(i,k,lchnk) * thlm(i,k) / inv_exner_clubb(i,k) &
+         !             + latvap * rcm(i,k) &
+         !             + gravit * state1%zm(i,k) + state1%phis(i)
          clubb_s(k) = cpairv(i,k,lchnk) * thlm(i,k) / inv_exner_clubb(i,k) &
-                      + latvap * rcm(i,k) &
+                      + latvap * rcm(i,k) + latvap * mf_rcm_output(i,k) &
                       + gravit * state1%zm(i,k) + state1%phis(i)
       enddo      
       
@@ -3223,6 +3258,7 @@ end subroutine clubb_init_cnst
          if (do_clubb_mf) then
            mf_thlflx_output(i,k) = mf_thlflx_output(i,k)*rho(i,k)*cpair
            mf_qtflx_output(i,k)  = mf_qtflx_output(i,k)*rho(i,k)*latvap
+           mf_rr_output(i,k)     = mf_rr_output(i,k)/rhoh2o
          end if
       enddo
    enddo
@@ -3479,6 +3515,10 @@ end subroutine clubb_init_cnst
      call outfld( 'edmf_S_AWV'    , s_awv_output,              pcols, lchnk )
      call outfld( 'edmf_thlflx'   , mf_thlflx_output,          pcols, lchnk )
      call outfld( 'edmf_qtflx'    , mf_qtflx_output,           pcols, lchnk )
+     call outfld( 'edmf_precc'    , mf_rr_output,              pcols, lchnk )
+     call outfld( 'edmf_thlforc'  , mf_thlforc_output,         pcols, lchnk )
+     call outfld( 'edmf_qtforc'   , mf_qtforc_output,          pcols, lchnk )
+     call outfld( 'edmf_rcm'      , mf_rcm_output,             pcols, lchnk )
    end if
 
    !  Output CLUBB history here
